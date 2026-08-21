@@ -1,0 +1,136 @@
+name: PR Review Reminder
+
+on:
+  schedule:
+    # Run every day at 9 AM KST (midnight UTC)
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  remind-reviewers:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Check for unreviewed PRs
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+
+            // Get all open PRs
+            const { data: pullRequests } = await github.rest.pulls.list({
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100
+            });
+
+            console.log(`Found ${pullRequests.length} open PRs`);
+
+            for (const pr of pullRequests) {
+              // Get requested reviewers
+              const { data: prDetails } = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: pr.number
+              });
+
+              // Get existing reviews
+              const { data: reviews } = await github.rest.pulls.listReviews({
+                owner,
+                repo,
+                pull_number: pr.number
+              });
+
+              // Get all requested reviewers (users and teams)
+              const requestedReviewers = prDetails.requested_reviewers || [];
+              const requestedTeams = prDetails.requested_teams || [];
+
+              // If there are requested reviewers but no reviews yet
+              if ((requestedReviewers.length > 0 || requestedTeams.length > 0) && reviews.length === 0) {
+                // Check if PR is at least 1 day old
+                const prCreatedAt = new Date(pr.created_at);
+                const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+                if (prCreatedAt < oneDayAgo) {
+                  // Check if we already sent a reminder (look for bot comment)
+                  const { data: comments } = await github.rest.issues.listComments({
+                    owner,
+                    repo,
+                    issue_number: pr.number
+                  });
+
+                  const reminderExists = comments.some(comment =>
+                    comment.user.type === 'Bot' &&
+                    comment.body.includes('Review Reminder')
+                  );
+
+                  // Only send reminder if we haven't sent one in the last day
+                  const lastReminderComment = comments
+                    .filter(c => c.user.type === 'Bot' && c.body.includes('Review Reminder'))
+                    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+
+                  const shouldRemind = !lastReminderComment ||
+                    new Date(lastReminderComment.created_at) < oneDayAgo;
+
+                  if (shouldRemind) {
+                    const reviewerMentions = requestedReviewers.map(r => `@${r.login}`).join(', ');
+                    const teamMentions = requestedTeams.map(t => `@${owner}/${t.slug}`).join(', ');
+                    const allMentions = [reviewerMentions, teamMentions].filter(Boolean).join(', ');
+
+                    await github.rest.issues.createComment({
+                      owner,
+                      repo,
+                      issue_number: pr.number,
+                      body: `## 🔔 Review Reminder (리뷰 알림)\n\n${allMentions} 님, 안녕하세요!\n\n이 PR이 리뷰를 기다리고 있습니다. 시간 되실 때 한 번 봐주시겠어요?\n\n감사합니다! 🙏`
+                    });
+
+                    console.log(`Posted reminder for PR #${pr.number}`);
+                  }
+                }
+              }
+
+              // Also check for reviewers who haven't submitted their review yet
+              if (reviews.length > 0 && requestedReviewers.length > 0) {
+                const reviewedBy = new Set(reviews.map(r => r.user.login));
+                const pendingReviewers = requestedReviewers.filter(r => !reviewedBy.has(r.login));
+
+                if (pendingReviewers.length > 0) {
+                  const prCreatedAt = new Date(pr.created_at);
+                  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+
+                  if (prCreatedAt < twoDaysAgo) {
+                    const { data: comments } = await github.rest.issues.listComments({
+                      owner,
+                      repo,
+                      issue_number: pr.number
+                    });
+
+                    const lastReminderComment = comments
+                      .filter(c => c.user.type === 'Bot' && c.body.includes('Pending Review Reminder'))
+                      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+
+                    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                    const shouldRemind = !lastReminderComment ||
+                      new Date(lastReminderComment.created_at) < oneDayAgo;
+
+                    if (shouldRemind) {
+                      const mentions = pendingReviewers.map(r => `@${r.login}`).join(', ');
+
+                      await github.rest.issues.createComment({
+                        owner,
+                        repo,
+                        issue_number: pr.number,
+                        body: `## 🔔 Pending Review Reminder (미제출 리뷰 알림)\n\n${mentions} 님, 안녕하세요!\n\n이 PR의 reviewer로 지정되셨습니다. 시간 되실 때 리뷰를 남겨주시겠어요?\n\n감사합니다! 🙏`
+                      });
+
+                      console.log(`Posted pending review reminder for PR #${pr.number}`);
+                    }
+                  }
+                }
+              }
+            }

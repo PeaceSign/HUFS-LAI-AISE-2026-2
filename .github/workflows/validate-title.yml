@@ -1,0 +1,60 @@
+name: Validate PR Title
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            // PR 제목 규칙: <type>: <설명>
+            // 이 검사는 LLM 을 쓰지 않는다. 규칙이 눈에 보여야 학생이 스스로 고칠 수 있다.
+            const TYPES = ['feat', 'fix', 'docs', 'test', 'refactor', 'chore', 'ci'];
+            const RE = new RegExp(`^(${TYPES.join('|')})(\\([a-z0-9._/-]+\\))?: .{4,}$`);
+
+            const pr = context.payload.pull_request;
+            const title = pr.title.trim();
+
+            if (RE.test(title)) {
+              console.log(`OK: ${title}`);
+              return;
+            }
+
+            const body = [
+              `PR 제목이 규칙에 맞지 않습니다.`,
+              ``,
+              `**형식** — \`<type>: <설명>\``,
+              ``,
+              `| type | 언제 |`,
+              `|---|---|`,
+              `| \`feat\` | 기능 추가 |`,
+              `| \`fix\` | 버그 수정 |`,
+              `| \`docs\` | 문서 (README, members 자기소개 등) |`,
+              `| \`test\` | 테스트 추가·수정 |`,
+              `| \`refactor\` | 동작은 그대로, 구조만 변경 |`,
+              `| \`chore\` | 설정·의존성 등 |`,
+              `| \`ci\` | GitHub Actions 등 자동화 |`,
+              ``,
+              `**예시**`,
+              `- \`docs: members에 202512345 추가\``,
+              `- \`feat: 토큰 개수 세는 CLI 추가\``,
+              `- \`fix: 빈 입력에서 나던 IndexError 수정\``,
+              ``,
+              `제목을 고치면 이 검사가 다시 돕니다. (현재 제목: \`${title}\`)`,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body,
+            });
+
+            core.setFailed(`PR 제목 규칙 불일치: ${title}`);

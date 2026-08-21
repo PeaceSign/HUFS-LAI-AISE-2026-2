@@ -1,0 +1,72 @@
+name: Auto-assign Owner as Reviewer After Approval
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  assign-owner:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Add owner as reviewer after approval
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const repoOwner = context.repo.owner;
+            const prNumber = context.payload.pull_request.number;
+
+            // Only proceed if the review is an approval
+            if (context.payload.review.state !== 'APPROVED') {
+              console.log('Review is not an approval, skipping...');
+              return;
+            }
+
+            // Get all reviews for this PR
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            // Count approvals
+            const approvals = reviews.filter(review => review.state === 'APPROVED');
+            console.log(`Total approvals: ${approvals.length}`);
+
+            // If at least 1 approval, add owner as reviewer
+            if (approvals.length >= 1) {
+              // Check if owner is already a reviewer
+              const { data: reviewers } = await github.rest.pulls.listRequestedReviewers({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              });
+
+              const isOwnerReviewer = reviewers.users.some(user => user.login === repoOwner);
+
+              // Also check if owner has already reviewed
+              const hasOwnerReviewed = reviews.some(review => review.user.login === repoOwner);
+
+              if (!isOwnerReviewer && !hasOwnerReviewed) {
+                try {
+                  await github.rest.pulls.requestReviewers({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: prNumber,
+                    reviewers: [repoOwner]
+                  });
+
+                  console.log(`Added ${repoOwner} as reviewer`);
+                } catch (error) {
+                  console.log(`Could not add ${repoOwner} as reviewer: ${error.message}`);
+                }
+              } else {
+                console.log(`${repoOwner} is already a reviewer or has already reviewed`);
+              }
+            } else {
+              console.log('Not enough approvals yet');
+            }
