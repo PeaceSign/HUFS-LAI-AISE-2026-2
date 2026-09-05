@@ -8,7 +8,7 @@
 <학번>/<짧은-설명>
 ```
 
-예: `202512345/add-member-page`, `202512345/fix-empty-input`
+예: `202512345/add-member`, `202512345/fix-empty-input`
 
 `main` 에 직접 push 하지 않습니다.
 
