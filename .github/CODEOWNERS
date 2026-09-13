@@ -1,1 +1,16 @@
-* @hist0613
+# 경로별 오너. 오너가 approve 해야 그 경로를 건드린 PR 이 merge 된다
+# (branch protection 의 Require review from Code Owners). 마지막에 맞는 줄이 이긴다.
+
+# 과목 운영 — 교수 확인
+/members.md          @hist0613
+/members/            @hist0613
+/.github/            @hist0613
+/README.md           @hist0613
+/CONTRIBUTING.md     @hist0613
+/CODE_OF_CONDUCT.md  @hist0613
+/LICENSE             @hist0613
+
+# 팀 프로젝트 — 팀이 자기 폴더와 오너 줄을 이 아래에 PR 로 추가한다.
+# 이 파일이 .github/ 안에 있으므로 그 PR 은 교수 approval 을 거친다.
+# 오너로 적는 사람은 이 repo 에 write 권한이 있어야 한다.
+# 예: /projects/team-a/  @github-id-1 @github-id-2
